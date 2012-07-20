@@ -1,0 +1,10 @@
+name = Commerce Mondial Relay
+description = Provides a shipping method using Mondial Relay service
+package = Commerce (shipping)
+dependencies[] = commerce
+dependencies[] = commerce_shipping (2.x)
+dependencies[] = commerce_physical
+dependencies[] = physical
+
+core = 7.x
+
