@@ -52,10 +52,11 @@ function commerce_mondial_relay_page_config(){
   $renderable_block =  _block_get_renderable_array(_block_render_blocks(array($block)));
 
   return array(
-    "#markup" =>'<div>
-                    Point relais : <div id="Retour_Display">Aucun</div>
-                    <div id="Zone_Widget"></div>
-                </div>'
+    "#markup" =>  drupal_render(drupal_get_form('commerce_mondial_relay_config_form'))
+                .'<div>
+                      <!--'.t('Relay point : ').'<div id="Retour_Display">'.t('No selected relay point').'</div>-->
+                      <div id="Zone_Widget"></div>
+                  </div>'
       .drupal_render(drupal_get_form('commerce_mondial_relay_getdetailrelay_form')),
   );
   //return drupal_get_form('commerce_mondial_relay_config_form');
@@ -67,16 +68,6 @@ function commerce_mondial_relay_form_alter(&$form, &$form_state, $form_id) {
     //$form['#validate'][] = 'commerce_mondial_relay_getdetailrelay_form_validate';
     //$form['#submit'][] = 'commerce_mondial_relay_getdetailrelay_form_submit';
   }
-}
-
-function commerce_mondial_relay_getdetailrelay_form_validate($form, &$form_state) {
-  if(empty($form_state['input']['prid'])){
-    form_set_error('prid', 'PRID vide');
-  }
-}
-
-function commerce_mondial_relay_getdetailrelay_form_submit($form, &$form_state) {
-  // submit here
 }
 
 function commerce_mondial_relay_getdetailrelay_form(){
@@ -92,22 +83,178 @@ function commerce_mondial_relay_getdetailrelay_form(){
 
   $form['submit'] = array(
     '#type' => 'submit',
-    '#disabled' => TRUE,
+    //'#disabled' => TRUE,
     '#description' => t('Select a mondial relay point and click on this button'),
+    '#submit' => array('commerce_mondial_relay_getdetailrelay_form_submit'),
     '#value' => t('Next step'),
   );
 
   return $form;
 }
 
+function commerce_mondial_relay_getdetailrelay_form_validate(&$form, &$form_state) {
+
+  if(empty($form_state['input']['prid'])){
+    form_set_error('prid', 'PRID vide');
+  }
+
+  $form['submit']['#disabled'] = FALSE;
+  $form_state['complete form']['submit']['#disabled'] = FALSE;
+}
+
+function commerce_mondial_relay_getdetailrelay_form_submit($form, &$form_state) {
+
+  $prid = explode("-", $form_state['input']['prid']);
+
+  if(!empty($prid[1])){
+    $countrycode = $prid[0];
+    $prid = $prid[1];
+  }
+  else {
+    $countrycode = "FR";
+    $prid = "";
+  }
+
+  $params = array(
+    'Enseigne' => variable_get('MR_WebSiteId','BDTEST12'),
+    'Pays' => $countrycode,
+    'NumPointRelais' => $prid,
+    'Ville' => "",
+    /*'CP' => "75010",
+    'Latitude' => "",
+    'Longitude' => "",
+    'Taille' => "",
+    'Poids' => "",
+    'Action' => "",
+    'DelaiEnvoi' => "0",
+    'RayonRecherche' => "20",
+    'TypeActivite' => "",
+    'NACE' => "",*/
+  );
+
+  //By default, return relay point with $prid
+  $result = commerce_mondial_relay_webservice(null,$params);
+
+  if($result['WSI3_PointRelais_RechercheResult']['STAT'] == "0") {
+    //existing relay point
+    dpm($result['WSI3_PointRelais_RechercheResult']['PointsRelais']['PointRelais_Details'],'resultat unique');
+  }
+  else drupal_set_message(t('No matching relay point.'));
+
+}
+
 function commerce_mondial_relay_config_form(){
   $form =  array();
+
+  $form['MR_WebSiteId'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Mondial relay website ID'),
+    '#default_value' => variable_get('MR_WebSiteId','BDTEST12'),
+    '#size' => 60,
+    '#maxlength' => 128,
+    '#required' => TRUE,
+  );
+
+  $form['MR_WebSiteKey'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Mondial relay website ID'),
+    '#default_value' => variable_get('MR_WebSiteKey','MRT_2012'),
+    '#size' => 60,
+    '#maxlength' => 128,
+    '#required' => TRUE,
+  );
+
+  $form['config_submit'] = array(
+    '#type' => 'submit',
+    '#description' => t('Mondial relay global variable'),
+    '#value' => t('Save config'),
+  );
+
 
   return $form;
 }
 
 function commerce_mondial_relay_config_form_validate($form,&$form_state){
+  if(empty($form_state['input']['MR_WebSiteId'])){
+    form_set_error('MR_WebSiteId', 'MR_WebSiteId empty');
+  }
+  if(empty($form_state['input']['MR_WebSiteKey'])){
+    form_set_error('MR_WebSiteKey', 'MR_WebSiteKey empty');
+  }
 }
 
 function commerce_mondial_relay_config_form_submit($form,&$form_state){
+  variable_set('MR_WebSiteId',$form_state['input']['MR_WebSiteId']);
+  variable_set('MR_WebSiteKey',$form_state['input']['MR_WebSiteKey']);
+}
+
+function commerce_mondial_relay_webservice($method_name = "WSI3_PointRelais_Recherche",$params = array()){
+  $result = array();
+
+  require_once(drupal_get_path('module','commerce_mondial_relay').'/nusoap/lib/nusoap.php');
+  // Global Settings definition
+  // Définition des paramètres globaux
+    $MR_WebSiteId = variable_get('MR_WebSiteId','BDTEST12');
+    $MR_WebSiteKey = variable_get('MR_WebSiteKey','MRT_2012');
+    $client = new nusoap_client("http://www.mondialrelay.fr/WebService/Web_Services.asmx?WSDL", true);
+    $client->soap_defencoding = 'utf-8';
+
+  // We define the parameters as a string array. Each Key/Val represents a parameter of the soap call
+  // On défini les paramètres dans un tableau de chaînes. Chaque paire Clé/Valeur est un paramètre de l'appel SOAP
+
+  if(empty($params)){
+    $params = array(
+       'Enseigne' => $MR_WebSiteId,
+       'Pays' => "FR",
+       'NumPointRelais' => "",
+       'Ville' => "",
+       'CP' => "75010",
+       'Latitude' => "",
+       'Longitude' => "",
+       'Taille' => "",
+       'Poids' => "",
+       'Action' => "",
+       'DelaiEnvoi' => "0",
+       'RayonRecherche' => "20",
+       'TypeActivite' => "",
+       'NACE' => "",
+    );
+  }
+
+  // We generate the request's security code
+  // On génère la clé de sécurité de l'appel
+  $code = implode("", $params);
+  $code .= $MR_WebSiteKey;
+  $params["Security"] = strtoupper(md5($code));
+
+  // We make the call and load it in the $result var
+  // On réalise l'appel et stocke le résultat dans la variable $result
+  $result = $client->call(
+    'WSI3_PointRelais_Recherche',
+    $params,
+    'http://www.mondialrelay.fr/webservice/',
+    'http://www.mondialrelay.fr/webservice/'.$method_name
+  );
+
+  // We check their is no error during the process
+  // On vérifie qu'il n'y a pas eu d'erreur
+  if ($client->fault) {
+    drupal_set_message('Fault (Expect - The request contains an invalid SOAP body)');
+    //dpm($result);
+  }
+  else {
+    $err = $client->getError();
+    if ($err) { drupal_set_message('<h2>Error</h2><pre>' . $err . '</pre>'); }
+    else {
+      dpm('Result OK');
+      /*echo '<h2>Result</h2><pre>';
+      print_r($result);
+      echo '</pre>';*/
+    }
+  }
+  /*drupal_set_message('<h2>Request</h2><pre>' . htmlspecialchars($client->request, ENT_QUOTES) . '</pre>');
+  drupal_set_message('<h2>Response</h2><pre>' . htmlspecialchars($client->response, ENT_QUOTES) . '</pre>');
+  drupal_set_message('<h2>Debug</h2><pre>' . htmlspecialchars($client->getDebug(), ENT_QUOTES) . '</pre>');*/
+
+  return $result;
 }
